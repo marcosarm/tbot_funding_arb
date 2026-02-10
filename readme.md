@@ -16,7 +16,7 @@ Neste diretório, o foco atual é a **documentação** + um **motor de backtest 
 - Documento fonte (arquitetura/estratégia/risco/testes): `SPECIFICATION.md`
 - Motor de backtest (biblioteca): `src/btengine`
 - Documentação do motor (btengine): `docs/btengine/README.md`
-- Arquivos de configuração local: `.env` (não deve ser versionado com segredos)
+- Arquivos de configuração local: `.env` (ignorado) e `.env.example` (template; não versionar segredos)
 
 ## 🏗️ Arquitetura
 - **Linguagem:** Python 3.10+
@@ -40,7 +40,8 @@ O sistema consome dados históricos proprietários armazenados no S3 com partici
    ```
 
 ## 🔐 Configuração (variáveis de ambiente)
-Use variáveis de ambiente (ou um arquivo `.env`) para configurar credenciais e recursos. Exemplo:
+Use variáveis de ambiente (ou um arquivo `.env`) para configurar credenciais e recursos.
+Use `.env.example` como base. Exemplo:
 
 ```dotenv
 BINANCE_API_KEY=...

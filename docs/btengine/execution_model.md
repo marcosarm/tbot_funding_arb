@@ -27,6 +27,31 @@ Campos:
 - `time_in_force`: `"GTC"` ou `"IOC"` (para limit)
 - `post_only`: se `True`, trata como maker (nao cruza spread)
 
+## Semantica de ordens (o que o backtest faz)
+
+O `SimBroker` trata ordens de forma "realista o suficiente" para backtest, mas ainda aproximada.
+Entrada e saida usam a mesma logica: muda apenas o `side` (`buy`/`sell`).
+
+Regras principais:
+
+- `market`:
+  - executa como taker consumindo o `L2Book` (VWAP) ate preencher a quantidade ou acabar a profundidade
+  - pode preencher parcialmente
+- `limit` + `IOC`:
+  - executa como taker ate o `limit_price` (nao cruza pior que o limite)
+  - pode preencher parcialmente (restante e descartado)
+- `limit` + `GTC` (nao post-only):
+  - se o preco cruza o spread no momento da ativacao, executa como taker ate o `limit_price`
+  - se nao cruza, vira maker (ordem resting) e pode preencher via modelo de fila
+  - limitacao atual: se cruzar e preencher parcialmente, o restante nao "vira resting order" automaticamente
+- `post_only=True`:
+  - se cruzaria o spread, a ordem e rejeitada (nao entra)
+  - caso contrario, vira maker e pode preencher via modelo de fila
+
+Observacao:
+
+- A decisao de "cruzar o spread" usa `best_bid()`/`best_ask()` do book atual. Se o book estiver incompleto (sem bid/ask), a estrategia deve evitar enviar ordens ate o book estar formado.
+
 ## Broker simulado: `SimBroker`
 
 Implementacao: `src/btengine/broker.py`
@@ -50,6 +75,16 @@ Realismo (parametros):
 - `cancel_latency_ms`: delay para aplicar `cancel()`
 - `maker_queue_ahead_factor` / `maker_queue_ahead_extra_qty`: tornam o maker mais conservador (assume mais fila a frente)
 - `maker_trade_participation`: fator em `(0,1]` para creditar apenas parte do volume de trades no nivel (conservador)
+
+Notas de latencia:
+
+- ordens atrasadas so "entram" quando `SimBroker.on_time(now_ms)` e chamado; o `BacktestEngine` chama isso automaticamente em ticks/eventos
+
+Limites gerais (importantes):
+
+- self-impact nao e aplicado: ao executar como taker, o book nao tem sua profundidade reduzida pela nossa execucao
+- nossas ordens maker nao entram no book (nao alteram `best_bid/best_ask` nem competem explicitamente na microestrutura)
+- `limit GTC` que cruza e preenche parcial nao deixa automaticamente o restante como ordem resting (ver acima)
 
 ### Taker fill (market/IOC)
 
@@ -84,7 +119,7 @@ Como o motor progride isso:
 
 Limites do modelo:
 
-- nao modela tempo de ack/cancel
+- modela delays deterministicas de submit/cancel, mas nao jitter/ack/rejects parciais como numa exchange real
 - nao modela prioridade por "age" real (somente queue ahead aproximada)
 - depende de trades no mesmo preco (se o dataset nao tiver granularidade suficiente, fills maker podem ficar subestimados)
 - ordens `post_only` que cruzariam o spread sao rejeitadas (nao entram no book)
@@ -119,7 +154,9 @@ O engine aplica funding uma unica vez por `next_funding_time_ms` por simbolo (pr
 
 Para aproximar mais o comportamento real:
 
-- latencia entre evento -> envio -> ack (e cancel delay)
+- self-impact: reduzir profundidade do book quando nossas ordens tomam liquidez
+- overlay de nossas ordens no book (para afetar best bid/ask e competir por fila)
+- remainder handling: `limit GTC` que cruza e preenche parcial deveria manter o restante como ordem resting
 - slippage estocastico adicional
 - modelo de spread/impact dinamico (alem do L2 nominal)
 - modelagem de "partial fills" maker ao longo do tempo (nao apenas via trade tape no preco exato)

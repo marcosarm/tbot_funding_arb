@@ -17,6 +17,8 @@ pytest -q
 
 ## 2) Configurar acesso ao S3 (CryptoHFTData)
 
+Use `.env.example` como template e crie um `.env` local.
+
 O tooling de scripts usa um `.env` com chaves como:
 
 ```dotenv

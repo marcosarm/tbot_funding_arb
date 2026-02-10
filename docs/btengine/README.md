@@ -23,6 +23,14 @@ O foco atual e:
 
 Nao e (ainda) um simulador "exchange-grade" com latencia/ack/cancel delays, matching engine ou modelagem completa de microestrutura.
 
+Ele ja inclui:
+
+- simulacao taker por consumo de L2 (VWAP)
+- modelo maker aproximado (fila + trade tape)
+- delays deterministicas opcionais de submit/cancel (para evitar otimismo)
+
+Mas ainda nao inclui matching engine completo, self-impact e overlay das nossas ordens no book.
+
 ## Navegacao da documentacao
 
 - Quickstart: `docs/btengine/quickstart.md`

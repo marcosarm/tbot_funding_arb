@@ -74,6 +74,9 @@ Arquivos:
   - `MakerQueueOrder` (modelo aproximado de maker fills)
 - `src/btengine/broker.py`
   - `SimBroker` (fees + latencia + modelo maker conservador; ver `on_time()` + `submit()`/`cancel()`)
+    - params: `maker_fee_frac`, `taker_fee_frac`
+    - params: `submit_latency_ms`, `cancel_latency_ms`
+    - params: `maker_queue_ahead_factor`, `maker_queue_ahead_extra_qty`, `maker_trade_participation`
   - `Fill`
 
 ## Portfolio

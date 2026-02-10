@@ -31,7 +31,7 @@ python scripts\\validate_s3_dataset.py --day 2025-07-01 --symbols BTCUSDT,BTCUSD
 
 Notas:
 
-- O script le `.env` por default do root.
+- O script le `.env` por default do root (use `.env.example` como template).
 - Ele nao imprime credenciais.
 - `--skip-missing` trata `FileNotFoundError` como "MISSING" (nao falha o processo por arquivos ausentes).
 
