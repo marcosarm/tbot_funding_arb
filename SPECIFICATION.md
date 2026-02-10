@@ -1,7 +1,7 @@
-# 📘 SPECIFICATION.md: Sistema de Arbitragem de Funding & Basis (Adaptive Bi-Directional)
+# 📘 SPECIFICATION.md: Sistema de Arbitragem de Funding & Basis (Grand Master Edition)
 
-**Versão:** 1.2.0 (Master Unified - Adaptive Logic)
-**Estado:** Produção / Crítico
+**Versão:** 1.5.0 (Implementation Ready)
+**Estado:** Desenvolvimento / Congelado para Codificação
 **Data:** Fevereiro 2026
 **Autor:** Marcosarm / Gemini Architect
 
@@ -9,222 +9,339 @@
 
 ## 1. Visão Geral do Sistema
 
-O sistema é um robô de trading de alta frequência (HFT/Mid-frequency) projetado para operar na **Binance Futures (USDT-Margined)**. A estratégia é **Delta Neutral Bi-Direcional**, capaz de lucrar tanto em mercados de alta (Bull) quanto de baixa (Bear), adaptando-se à volatilidade e liquidez do momento.
+O sistema é um robô de trading quantitativo de alta frequência (HFT/Mid-frequency) para **Binance Futures (USDT-Margined)**. A estratégia é **Delta Neutral Bi-Direcional**, arbitrando a curva de futuros e capturando Funding Rate, com adaptação dinâmica à volatilidade e proteção de microestrutura.
 
 ### 1.1 Objetivos Core
-1.  **Arbitragem de Spread (Basis) Adaptativa:** Comprar/Vender o spread baseando-se em desvios estatísticos ajustados pela volatilidade real do mercado.
+1.  **Arbitragem Estatística:** Identificar anomalias no *Basis Teórico* (Mid-Price) e executar no *Basis Real* (Impact Price).
 2.  **Funding Extraction (Carry Trade):**
     * **Standard Carry:** Short Perp / Long Futuro (Ganha Funding Positivo).
     * **Reverse Carry:** Long Perp / Short Futuro (Ganha Funding Negativo).
-3.  **Proteção de Microestrutura:** Validar a profundidade do Orderbook (L2) antes de qualquer execução para mitigar slippage.
+3.  **Segurança:** Operar alavancado (3x) sob Margem de Portfólio, com execução atômica e verificação profunda de liquidez.
 
 ---
 
-## 2. Arquitetura e Stack Tecnológico
+## 2. Parâmetros Globais e Constantes (Env Config)
 
-### 2.1 Infraestrutura (AWS)
-* **Região Obrigatória:** `ap-northeast-1` (Tokyo) - Latência < 10ms para `fapi.binance.com`.
-* **Tipo de Instância:** `c5.large` ou superior (Compute Optimized).
+### 2.1 Convenções (Unidades e Representação)
+
+- Taxas/percentuais são representados como **fração** (ex: `0.0001` = `0.01%` = 1 bp).
+- `price`: USDT por unidade do ativo base (ex: BTC).
+- `qty`: unidade do ativo base (ex: BTC).
+- `notional`: USDT.
+
+| Parâmetro | Valor Padrão | Unidade/Representação | Descrição |
+| :--- | :--- | :--- | :--- |
+| `AWS_REGION` | `ap-northeast-1` | - | Tóquio (Latência < 10ms). |
+| `IMPACT_NOTIONAL` | `25000` | USDT | Notional alvo para cálculo do Impact VWAP (e tamanho padrão de ordem, por perna, se não houver sizing dinâmico). |
+| `FUNDING_THRESHOLD` | `0.0001` | fração (0.01%) | Funding mínimo (módulo) para autorizar entrada no modo correspondente. |
+| `MAX_SLIPPAGE` | `0.0005` | fração (5 bps = 0.05%) | Slippage máximo aceitável ao completar como Taker (IOC). |
+| `ENTRY_SAFETY_MARGIN` | `0.0002` | fração (2 bps = 0.02%) | Buffer adicional para cobrir erro de modelo/spread/latência ao validar gatilho financeiro. |
+| `LIQUIDITY_MIN_RATIO` | `5.0` | x | Multiplicador sobre o tamanho da ordem para aprovar liquidez. |
+| `LIQUIDITY_DEPTH_PCT` | `0.001` | fração (0.1%) | Profundidade relativa (em torno do Mid) para cálculo do Score de Liquidez. |
+| `Z_WINDOW` | `1440` | min | Janela de lookback para Média/Desvio e Z-Score (24h), em amostras por minuto. |
+| `Z_EXIT_EPS` | `0.2` | - | Tolerância para considerar convergência (`abs(Z) <= Z_EXIT_EPS`). |
+| `Z_HARD_STOP` | `4.0` | - | Hard stop por evento extremo (`abs(Z) >= Z_HARD_STOP`). |
+| `VOL_RATIO_WINDOW` | `60` | min | Janela curta (min) para cálculo de volatilidade relativa. |
+| `ASOF_TOLERANCE_MS` | `100` | ms | Tolerância do ASOF JOIN entre Orderbook e Mark Price. |
+| `MAKER_WAIT_SEC` | `5` | s | Tempo máximo tentando Maker antes do fallback para Taker. |
+| `ENTRY_COOLDOWN_SEC` | `30` | s | Cooldown após rejeição por liquidez/erro operacional para evitar overtrading. |
+| `LEGGING_CHECK_DELAY_MS` | `200` | ms | Delay após envio das pernas antes da reconciliação de posições (legging). |
+| `HEDGE_EPS_BASE` | `0.001` | base (ex: BTC) | Tolerância máxima de desbalanceamento entre pernas antes de acionar hedge de emergência. |
+| `WS_MAX_PROCESSING_LATENCY_MS` | `50` | ms | Latência máxima de processamento (local) antes de reiniciar o pipeline/WS. |
+| `WS_LAST_MSG_TIMEOUT_MS` | `5000` | ms | Timeout sem mensagens de WS antes de entrar em modo de segurança. |
+| `KILL_SWITCH_DRAWDOWN_FRAC` | `0.03` | fração (3%) | Drawdown diário máximo antes do kill switch global. |
+| `RATE_LIMIT_SOFT_WEIGHT_PER_MIN` | `1200` | weight/min | Soft limit local para evitar ban (limite Binance maior). |
+| `FEE_MAKER_FRAC` | `0.0004` | fração (0.04%) | Taxa de Maker usada em simulação/backtest e buffers financeiros. |
+| `FEE_TAKER_FRAC` | `0.0005` | fração (0.05%) | Taxa de Taker usada em simulação/backtest e buffers financeiros. |
+
+---
+
+## 3. Arquitetura e Infraestrutura
+
+### 3.1 Infraestrutura AWS
+* **Tipo de Instância:** `c5.large` ou `c6i.large` (Compute Optimized).
 * **Sistema Operativo:** Amazon Linux 2023 ou Ubuntu 22.04 LTS.
-* **Rede:** Enhanced Networking (ENA) ativado. IP Elástico associado.
-* **Relógio:** Sincronização via `chrony` (precisão de microssegundos).
+* **Rede:**
+    * **Enhanced Networking (ENA):** Ativado obrigatoriamente.
+    * **Elastic IP:** Associado para whitelisting na Binance.
+* **Relógio:** Serviço `chrony` configurado com pool da AWS (`169.254.169.123`) para precisão de microssegundos.
 
-### 2.2 Stack de Software
+### 3.2 Stack de Software
 * **Linguagem:** Python 3.10+.
-* **Bibliotecas Core:**
-    * `ccxt` (versão Pro/Async): Conectividade WebSocket e REST.
-    * `pandas` & `numpy`: Cálculos vetoriais e séries temporais.
-    * `pyarrow` / `fastparquet`: Leitura eficiente dos dados do S3.
-    * `boto3`: Integração com AWS S3.
-* **Gestão de Processos:** `systemd` (para auto-restart) ou Docker.
+* **Core Libs:** `ccxt` (Pro/Async), `pandas`, `numpy`, `pyarrow`, `boto3`.
+* **Process Manager:** `systemd` (para auto-restart e logs via journalctl).
 
 ---
 
-## 3. Engenharia de Dados (Input)
+## 4. Engenharia de Dados (Input)
 
-O sistema opera em modo híbrido: **Backtest** (Dados S3) e **Live** (WebSockets).
-
-### 3.1 Estrutura de Dados S3 (Backtest)
+### 4.1 Tratamento de Dados S3 (Backtest)
 * **Bucket:** `s3://amzn-tdata`
 * **Prefixo:** `hftdata`
 * **Formato:** Parquet (Snappy/Zstd).
 
-**Mapeamento de Ficheiros Críticos:**
-1.  **Orderbook (L2):**
-    * Path: `.../orderbook/binance_futures/{SYMBOL}/{YYYY}/{MM}/{DD}/orderbook_{HH}.parquet`
-    * Schema: `received_time`, `bids` (array[price, qty]), `asks` (array[price, qty]).
-    * *Uso:* Reconstrução de liquidez e cálculo de Preço de Impacto.
-2.  **Mark Price:**
-    * Path: `.../mark_price/.../mark_price.parquet`
-    * Schema: `index_price`, `funding_rate`, `next_funding_time`.
-    * *Uso:* Cálculo do Premium Index histórico.
+**Mapeamento e Normalização:**
+1.  **Orderbook (`orderbook_{HH}.parquet`):**
+    * Schema: `received_time` (int64, epoch ms), `bids` (list<list<float>>), `asks` (list<list<float>>).
+    * *Ação:* Flattening dos arrays para cálculo vetorial ou iteração rápida.
+2.  **Mark Price (`mark_price.parquet`):**
+    * Colunas: `index_price`, `funding_rate`, `next_funding_time`.
+    * *Sync:* Realizar "ASOF JOIN" (merge by nearest timestamp) com o Orderbook, tolerância de `ASOF_TOLERANCE_MS`.
 
-### 3.2 Dados em Tempo Real (Live/WebSocket)
-Conexão via `ccxt.pro`. Streams obrigatórios:
-1.  `btcusdt@depth20@100ms`: Orderbook top 20 níveis (Perpétuo).
-2.  `btcusdt_260626@depth20@100ms`: Orderbook top 20 níveis (Futuro Trimestral).
-3.  `btcusdt@markPrice`: Para monitorar o Funding Rate projetado pela exchange.
-
----
-
-## 4. Lógica Matemática (O "Core")
-
-### 4.1 Cálculo de Preço de Execução (Impact Price)
-**Regra Rígida:** JAMAIS utilizar `last_price`. O robô deve calcular o **VWAP de Impacto** para um lote nocional de **$25.000 USD**.
-
-* **Função `calculate_impact_price(book, side, notional_target)`:**
-    1.  Iterar sobre as ordens do book (lado oposto: se quer comprar, analisa *asks*).
-    2.  Acumular volume até `sum(price * qty) >= 25.000`.
-    3.  Retornar média ponderada: $\frac{\sum (price \times qty)}{\sum qty}$.
-
-### 4.2 Definição do Spread (Basis)
-$$Spread\% = \frac{\text{ImpactAsk}_{Futuro} - \text{ImpactBid}_{Perp}}{\text{ImpactBid}_{Perp}}$$
-*(Nota: Esta fórmula representa o custo real de entrar na operação Standard).*
-
-### 4.3 Indicador Z-Score Base
-Utilizado para identificar desvios estatísticos brutos.
-* **Janela (Lookback):** 1440 minutos (24 horas).
-* **Cálculo:**
-    $$Z_{Base} = \frac{Spread_{Atual} - \text{Média}(Spread_{1440})}{\text{DesvioPadrão}(Spread_{1440})}$$
-
-### 4.4 Ajuste Dinâmico de Volatilidade (Adaptive Threshold)
-O limiar de entrada deixa de ser fixo (2.0) e adapta-se ao regime de mercado.
-
-* **1. Volatilidade Relativa ($VolRatio$):**
-    Comparar a volatilidade da última hora com a média do dia.
-    $$VolRatio = \frac{StdDev(Spread_{Last60min})}{Avg(StdDev(Spread_{Last24h}))}$$
-
-* **2. Definição do Limiar Dinâmico ($DynamicZ$):**
-    * Se $VolRatio < 0.8$ (Mercado Lateral/Calmo): $DynamicZ = 1.5$ (Mais agressivo).
-    * Se $VolRatio > 1.5$ (Mercado Tendência/Pânico): $DynamicZ = 3.0$ (Mais conservador/Seguro).
-    * Caso contrário (Normal): $DynamicZ = 2.0$.
-
-### 4.5 Filtro de Liquidez (Liquidity Score)
-Antes de aceitar um sinal, o robô deve medir a saúde do book para evitar slippage.
-* **Cálculo:** Somar o volume disponível nos primeiros **0.1%** de profundidade do book (Bid e Ask).
-* **Regra de Bloqueio:**
-    $$Se (LiquidezDisponivel < TamanhoOrdem \times 5): Rejeitar$$
-
-### 4.6 Projeção de Funding (Shadow Funding)
-O robô deve antecipar o funding rate antes do fecho.
-* **Fórmula:** Recalcular o *Premium Index* minuto a minuto usando dados do Orderbook.
-    $$PremiumIndex = \frac{\text{ImpactAsk}_{Perp}(25k) + \text{ImpactBid}_{Perp}(25k)}{2} - \text{IndexPrice}$$
-* **Decisão:** O sinal (+ ou -) define o MODO de operação (Standard vs Reverse).
+### 4.2 Dados em Tempo Real (Live)
+* **Conexão:** `ccxt.pro` (Async WebSocket).
+* **Streams Obrigatórios:**
+    1.  `btcusdt@depth20@100ms`: Orderbook top 20 (Perp).
+    2.  `btcusdt_260626@depth20@100ms`: Orderbook top 20 (Futuro Trimestral, exemplo; o contrato deve ser selecionado pela lógica de "contract picker").
+    3.  `btcusdt@markPrice`: Monitoramento de Funding/Index.
+* **Watchdog:** Se `latency_processamento_ms > WS_MAX_PROCESSING_LATENCY_MS` ou `last_msg_age_ms > WS_LAST_MSG_TIMEOUT_MS`, reiniciar conexão.
 
 ---
 
-## 5. Máquina de Estados (Estratégia Adaptativa)
+## 5. Lógica Matemática (Precision Core)
 
-O sistema verifica qual regime de mercado está ativo antes de buscar gatilhos.
+### 5.1 Algoritmo de Impact Price (VWAP com Partial Fill)
+Calcula o custo exato para executar um volume financeiro, considerando que o último nível de preço pode ser preenchido parcialmente.
 
-### 5.1 Seleção de Contrato (Dynamic Hedge)
-* **Standard Mode (Bull):** Escolher Futuro com menor Premium (mais barato).
-* **Reverse Mode (Bear):** Escolher Futuro com maior Premium (mais caro).
+**Notas:**
+* Para BUY, passe o lado `asks` ordenado por preço ascendente.
+* Para SELL, passe o lado `bids` ordenado por preço descendente.
+* `target_notional_usdt` deve estar na mesma unidade do `price` (USDT).
 
-### 5.2 Tabela de Decisão (Gatilhos Atualizada)
-
-| Modo | Condição Lógica (Gatilho) | Ação (Execução) |
-| :--- | :--- | :--- |
-| **ENTRADA STANDARD**<br>(Funding Positivo) | `Z-Score < -DynamicZ` (Barato)<br>**AND** `Funding_Proj > 0.01%`<br>**AND** `Liquidity_Check == OK` | **LONG BASIS:**<br>1. Vender (Short) Perpétuo<br>2. Comprar (Long) Futuro |
-| **ENTRADA REVERSE**<br>(Funding Negativo) | `Z-Score > +DynamicZ` (Caro)<br>**AND** `Funding_Proj < -0.01%`<br>**AND** `Liquidity_Check == OK` | **SHORT BASIS:**<br>1. Comprar (Long) Perpétuo<br>2. Vender (Short) Futuro |
-| **SAÍDA (Lucro)** | `Z-Score convergiu para 0` | **TAKE PROFIT:**<br>Zerar ambas as posições (Standard ou Reverse). |
-| **SAÍDA (Seca)** | Funding inverteu o sinal ou foi a 0. | **STOP TIME:**<br>Zerar posições pois a vantagem matemática acabou. |
-| **STOP LOSS** | `Z-Score < -4.0` (Standard)<br>`Z-Score > +4.0` (Reverse) | **HARD STOP:**<br>Zerar imediatamente. |
-
----
-
-## 6. Sistema de Execução (Execution Engine)
-
-### 6.1 Atomicidade
-* Utilizar o endpoint `privatePostBatchOrders` da Binance.
-* **Crítico:** As ordens da perna A e perna B devem ser enviadas no mesmo pacote JSON.
-
-### 6.2 Gestão de Ordens
-* **Entrada:** Tentar `LIMIT POST-ONLY` (Maker) no topo do book durante 5 segundos. Se não preencher, agredir com `LIMIT IOC` (Taker) calculando slippage máximo de 0.05%.
-* **Guardrail de Liquidez:** Se a liquidez secar durante a tentativa Maker (Liquidez < 3x Ordem), cancelar e não agredir.
-
-### 6.3 Verificação de Saldo (Hedge Check)
-A cada 1 minuto, verificar:
 ```python
-if abs(position_perp_amt) != abs(position_future_amt):
-    trigger_rebalance() # Rebalancear para evitar risco direcional
+def calculate_impact_vwap(book_side, target_notional_usdt):
+    """
+    book_side: Lista ordenada [[price, qty], ...]
+    Retorna: Preço Médio Ponderado (Float) ou NaN se liquidez insuficiente.
+    """
+    remaining_notional = target_notional_usdt
+    total_qty_acquired = 0.0
+    cost_accumulator = 0.0
+    
+    for price, qty in book_side:
+        level_notional = price * qty
+        
+        if level_notional <= remaining_notional:
+            # Consome nível inteiro
+            execute_notional = level_notional
+            execute_qty = qty
+        else:
+            # Partial Fill: Consome apenas o necessário deste nível
+            execute_notional = remaining_notional
+            execute_qty = remaining_notional / price
+            
+        cost_accumulator += (execute_qty * price)
+        total_qty_acquired += execute_qty
+        remaining_notional -= execute_notional
+        
+        if remaining_notional <= 1e-6: # Tolerância float
+            break
+            
+    if remaining_notional > 1e-6:
+        return float('nan') # Liquidez Insuficiente
+        
+    return cost_accumulator / total_qty_acquired
 ```
 
-## 7. Gestão de Risco e Segurança (Safety)
+### 5.2 Definição de Basis (Dual Metrics)
 
-Esta seção tem precedência absoluta sobre qualquer lógica de lucro. O robô deve operar sob o princípio de "Preservação de Capital Primeiro".
+O sistema deve distinguir estritamente "Sinal Estatístico" de "Custo de Execução".
 
-### 7.1 Kill Switch Global (Disjuntor)
-* **Monitoramento:** O sistema deve calcular o `Total_Equity` (Saldo em Carteira + PnL não realizado) a cada 1 minuto.
-* **Gatilho:** Se `Total_Equity < Equity_Inicio_Dia * 0.97` (Drawdown Diário > 3%).
-* **Sequência de Emergência (Atômica):**
-    1.  Enviar ordem `MARKET` para fechar todas as posições abertas imediatamente.
-    2.  Cancelar todas as ordens pendentes (`cancel_all_orders`).
-    3.  Enviar alerta crítico (Telegram/SNS/Log).
-    4.  Encerrar o processo (`sys.exit(1)`).
+**A. Basis de Sinal (Estatístico - Z-Score):**
+Utiliza o `MidPrice` para pureza estatística, evitando ruído de bid-ask spread.
+$$Mid = \frac{BestBid + BestAsk}{2}$$
+$$Basis_{Signal} = \frac{Mid_{Futuro} - Mid_{Perp}}{Mid_{Perp}}$$
 
-### 7.2 Proteção de Inversão de Funding (Flip Protection)
-* **Risco:** Estar posicionado em uma direção (ex: *Standard Carry*) e a projeção do Funding inverter o sinal bruscamente.
-* **Regra:** Se o sinal do `Funding_Proj` cruzar de Positivo para Negativo (ou vice-versa) enquanto houver posição aberta, acionar **Saída Imediata**.
-* **Motivo:** A estratégia baseia-se estritamente em *receber* o funding. Pagar taxas destrói a vantagem matemática.
+**B. Basis de Execução (Financeiro - PnL Real):**
+Utiliza o `ImpactPrice` (`IMPACT_NOTIONAL`) para garantir a viabilidade financeira da entrada.
+* **Standard Entry (Short Perp / Long Fut):**
+    $$Cost_{Std} = \frac{ImpactAsk_{Futuro} - ImpactBid_{Perp}}{ImpactBid_{Perp}}$$
+* **Reverse Entry (Long Perp / Short Fut):**
+    $$Cost_{Rev} = \frac{ImpactBid_{Futuro} - ImpactAsk_{Perp}}{ImpactAsk_{Perp}}$$
 
-### 7.3 Execution Liquidity Guard (Microestrutura)
-* **Camada de Proteção:** Mesmo que o Z-Score indique entrada, a execução deve ser bloqueada se o book estiver "fino".
-* **Lógica:** Se a função `Liquidity_Check` retornar `False` (Liquidez < 5x Tamanho da Ordem):
-    1.  **Não** enviar a ordem para a exchange.
-    2.  Logar o evento: *"Sinal ignorado por falta de profundidade no book"*.
-    3.  Pausar novas tentativas de entrada por 30 segundos (Cool-down).
+### 5.3 Z-Score Adaptativo (Adaptive Threshold)
+Ajusta a agressividade da entrada baseada na volatilidade relativa do mercado.
 
-### 7.4 Controle de Rate Limits (Pesos da API)
-* **Implementação:** Manter um contador local de "Weight" da Binance (reseta a cada minuto).
-* **Limite Soft:** 1200 por minuto (O limite da Binance é 2400).
-* **Ação:** Se atingir 1200, pausar todas as requisições não-críticas (ex: consultas de saldo, updates de ticker) por 60 segundos.
+1.  **Z-Score Base (sobre `Basis_Signal`):**
+    $$\mu_t = Mean(Basis_{Signal}, Z\_WINDOW)$$
+    $$\sigma_t = StdDev(Basis_{Signal}, Z\_WINDOW)$$
+    $$Z_t = \frac{Basis_{Signal,t} - \mu_t}{\sigma_t}$$
+    *Regra:* Se $\sigma_t$ for muito pequeno (ex: sem variação), bloquear entrada ou tratar $Z_t = 0$ para evitar divisão instável.
 
-### 7.5 Watchdog de WebSocket
-* **Monitoramento:** Guardar o timestamp da última mensagem recebida de *qualquer* stream assinado.
-* **Timeout:** Se `Time_Now - Last_Msg_Time > 5 segundos`:
-    * Considerar conexão morta/zumbi.
-    * Cancelar ordens abertas imediatamente via REST API (Safety Cancel).
-    * Iniciar rotina de reconexão exponencial.
+2.  **Cálculo do VolRatio (regime):**
+    Comparar a volatilidade recente com a volatilidade média do dia.
+    $$VolNow_t = StdDev(Basis_{Signal}, VOL\_RATIO\_WINDOW)$$
+    $$VolRef_t = Mean(StdDev(Basis_{Signal}, VOL\_RATIO\_WINDOW), Z\_WINDOW)$$
+    $$VolRatio_t = \frac{VolNow_t}{VolRef_t}$$
 
-### 7.6 Verificação de Paridade (Hedge Check)
-* **Frequência:** A cada 60 segundos.
-* **Lógica:** Verificar se `abs(Posição_Perp) == abs(Posição_Futuro)`.
-* **Ação:** Se houver desbalanceamento > 0.001 BTC (Risco Direcional / Legging Risk), acionar rebalanceamento a mercado para zerar o delta imediatamente.
+3.  **Limiar Dinâmico ($DynamicZ$):**
+    * Se $VolRatio < 0.8$ (Mercado Calmo) $\to$ **1.5** (Entrada Agressiva).
+    * Se $VolRatio > 1.5$ (Mercado Agitado) $\to$ **3.0** (Entrada Defensiva).
+    * Caso contrário $\to$ **2.0** (Padrão).
+
+### 5.4 Filtro de Liquidez (Microestrutura)
+* **Range de Análise:** Profundidade relativa $\pm LIQUIDITY\_DEPTH\_PCT$ em torno do Mid.
+* **Unidade Recomendada:** notional (USDT), para ficar consistente com `IMPACT_NOTIONAL`.
+* **OrderNotional (padrão):** `OrderNotional = IMPACT_NOTIONAL`.
+* **Regra (por perna):** a perna BUY deve ter liquidez suficiente no lado Ask, e a perna SELL deve ter liquidez suficiente no lado Bid.
+* **Regra de Bloqueio:**
+    $$Se (LiquidezSideNotional < OrderNotional \times LIQUIDITY\_MIN\_RATIO): Rejeitar$$
+    *Ação:* Logar "Insufficient Liquidity Depth" e pausar entradas por `ENTRY_COOLDOWN_SEC`.
+
+### 5.5 Definição de `Funding_Proj` (Fonte e Unidade)
+`Funding_Proj` é a taxa de funding estimada para o **próximo evento de funding**, expressa como fração.
+
+* **Live:** obter via stream `@markPrice` ou REST (`premiumIndex`/equivalente), usando o valor mais recente.
+* **Backtest:** usar a coluna `funding_rate` do `mark_price.parquet` via ASOF JOIN.
+
+Regras de operação:
+* **Standard:** operar somente se `Funding_Proj > +FUNDING_THRESHOLD`.
+* **Reverse:** operar somente se `Funding_Proj < -FUNDING_THRESHOLD`.
 
 ---
 
-## 8. Plano de Testes (QA)
+## 6. Máquina de Estados e Execução
 
-O código só pode ser promovido para produção após passar por todos os estágios abaixo (Pipeline de CI/CD).
+### 6.1 Tabela de Decisão
 
-### 8.1 Testes Unitários (Math Core)
-* **Teste de Impact Price:**
-    * Criar um Orderbook fictício em memória (ex: `[[100, 1], [101, 1]]`).
-    * Validar se a função retorna o VWAP correto para um target de volume de $25k.
-* **Teste de Volatilidade Adaptativa:**
-    * Passar uma série de preços com alta variância simulada.
-    * Validar se o parâmetro `DynamicZ` sobe automaticamente de 2.0 para 3.0.
+| Modo | Gatilho Estatístico | Gatilho Financeiro | Ação |
+| :--- | :--- | :--- | :--- |
+| **ENTRADA STANDARD**<br>(`Funding_Proj > +FUNDING_THRESHOLD`) | `Z < -DynamicZ` | `Cost_Std <= Media - (Custos + ENTRY_SAFETY_MARGIN)` | **Vender Perp / Comprar Fut** |
+| **ENTRADA REVERSE**<br>(`Funding_Proj < -FUNDING_THRESHOLD`) | `Z > +DynamicZ` | `Cost_Rev >= Media + (Custos + ENTRY_SAFETY_MARGIN)` | **Comprar Perp / Vender Fut** |
+| **SAÍDA (Mean Reversion)** | `abs(Z) <= Z_EXIT_EPS` | N/A (Executar a Mercado) | **Zerar Posições** |
+| **STOP LOSS (Z Extreme)** | `abs(Z) >= Z_HARD_STOP` | N/A (Executar a Mercado) | **Zerar Posições** |
 
-### 8.2 Testes de Lógica de Negócio (Simulation)
-* **Cenário A (Reverso):** Simular inputs onde `Funding = -0.05%` e `Z-Score = +2.5`.
-    * *Validação:* O robô deve gerar ordem de **COMPRA no Perpétuo** e **VENDA no Futuro**.
-* **Cenário B (Book Fino):** Criar book com apenas 1 BTC de profundidade total e tentar enviar uma ordem de 10 BTC.
-    * *Validação:* O sistema deve **REJEITAR** a ordem internamente e não chamar a API da exchange.
+Onde:
+* `Media`: média móvel de `Basis_Signal` na janela `Z_WINDOW` (mesma usada no Z-Score).
+* `Custos`: estimativa conservadora de custos de entrada/saída (fees + slippage). Por padrão, usar `FEE_TAKER_FRAC * 2 + MAX_SLIPPAGE` como aproximação (2 pernas).
+* `Cost_Std` e `Cost_Rev`: definidos na seção 5.2 (Basis de Execução).
 
-### 8.3 Teste de Integração (Data Engineering)
-* **Performance:** Ler 24 horas de arquivos Parquet do bucket `s3://amzn-tdata`.
-* **Integridade:** Verificar se não há gaps temporais nos dados carregados e se o consumo de RAM se mantém estável (< 2GB).
+### 6.2 Pipeline de Execução (Maker $\to$ Taker)
 
-### 8.4 Backtest de Rentabilidade
-* **Dataset:** Amostra `2025/07`.
-* **Comparativo:** Rodar a estratégia em dois modos: "Fixo 2.0" vs "Dinâmico (Adaptive)".
-* **Critério de Aprovação:** O modo Dinâmico deve apresentar menor Drawdown Máximo e melhor Sharpe Ratio. Lucro líquido deve ser positivo após taxas (0.08%).
+O sistema deve tentar prover liquidez (Maker) antes de tomar liquidez (Taker) para economizar taxas, mas garantir a execução.
 
-### 8.5 Paper Trading (Dry Run)
-* **Ambiente:** Binance Futures Testnet.
-* **Duração:** 48 horas ininterruptas.
-* **Checklist:**
-    * [ ] Zero erros críticos de execução (ex: "Insufficient Margin", "Invalid Order").
-    * [ ] Reconexão automática de WebSocket funcionando após simulação de queda de rede.
-    * [ ] Logs de auditoria gravando corretamente o motivo de cada entrada/saída.
+```python
+async def execute_leg(symbol, side, qty, price_maker, price_taker):
+    """
+    Pseudocódigo.
+    Observação: Post-Only depende do conector (ex: ccxt pode usar `postOnly=True` ou `timeInForce='GTX'`).
+    """
+    maker_order_id = None
+
+    # 1. Tenta MAKER (Post-Only)
+    try:
+        maker = await exchange.create_order(
+            symbol, 'LIMIT', side, qty, price_maker,
+            params={'postOnly': True}
+        )
+        maker_order_id = maker['id']
+    except ExchangeError:
+        maker_order_id = None
+
+    filled = 0.0
+    if maker_order_id:
+        await asyncio.sleep(MAKER_WAIT_SEC)
+        status = await exchange.fetch_order(maker_order_id, symbol)
+        filled = float(status.get('filled') or 0.0)
+        if filled < qty:
+            await exchange.cancel_order(maker_order_id, symbol)
+
+    remaining = qty - filled
+
+    # 2. Completa como TAKER (IOC - Immediate or Cancel) se necessário
+    if remaining > 0:
+        await exchange.create_order(
+            symbol, 'LIMIT', side, remaining, price_taker,
+            params={'timeInForce': 'IOC'}
+        )
+```
+### 6.3 Recuperação de Legging (Hedge-on-Leg)
+Como a Binance não garante atomicidade de execução entre pares diferentes (Perpétuo vs Futuro), o risco de ficar "Pato Manco" (Legging Risk) deve ser tratado como um estado de erro crítico.
+
+* **Trigger:** Após o envio do Batch Order, aguardar `LEGGING_CHECK_DELAY_MS` e consultar o saldo das posições (`fetch_positions`).
+* **Lógica de Reconciliação (Hedge Imediato):**
+    * Se `abs(Posicao_Perp) > abs(Posicao_Futuro)`:
+        * **Cenário:** O Perpétuo executou, mas o Futuro falhou.
+        * **Ação:** Enviar ordem `MARKET` no **Futuro** para cobrir a diferença de delta imediatamente, ignorando slippage.
+    * Se `abs(Posicao_Futuro) > abs(Posicao_Perp)`:
+        * **Cenário:** O Futuro executou, mas o Perpétuo falhou.
+        * **Ação:** Enviar ordem `MARKET` no **Perpétuo** para cobrir a diferença imediatamente.
+* **Tolerância:** Se `abs(abs(Posicao_Perp) - abs(Posicao_Futuro)) <= HEDGE_EPS_BASE`, considerar hedge OK.
+* **Log:** Emitir alerta `CRITICAL_LEGGING_EVENT` com detalhes do desbalanceamento.
+
+---
+
+## 7. Gestão de Risco e Segurança
+
+Esta seção tem precedência absoluta sobre a lógica de trading.
+
+### 7.1 Kill Switch Global
+* **Regra:** Se `Total_Equity < Equity_Inicio_Dia * (1 - KILL_SWITCH_DRAWDOWN_FRAC)`.
+* **Sequência de Emergência:**
+    1. `cancel_all_orders(symbol)` (Cancelar pendentes).
+    2. `close_all_positions(market)` (Zerar a mercado).
+    3. Enviar notificação de Pânico.
+    4. `sys.exit(1)` (Encerrar o processo do robô para evitar reabertura).
+
+### 7.2 Funding Flip Protection
+* **Risco:** Estar posicionado para receber Funding (ex: Short Perp) e a projeção virar negativa (ter que pagar).
+* **Regra:** Se o sinal do `Funding_Proj` inverter enquanto estiver posicionado.
+* **Ação:** Encerrar a posição imediatamente. A estratégia é estritamente de *recebimento* de taxas.
+
+### 7.3 Rate Limits
+* **Soft Limit:** `RATE_LIMIT_SOFT_WEIGHT_PER_MIN` weight/min (metade do limite da Binance).
+* **Ação:** Se atingido, pausar todas as requisições não-críticas (ex: checks de saldo, fetches auxiliares) por 60 segundos.
+
+### 7.4 Hedge Check (Paridade)
+Mesmo após a entrada, deve haver reconciliação periódica para evitar drift direcional.
+
+* **Frequência:** a cada 60 segundos.
+* **Regra:** se `abs(abs(Posicao_Perp) - abs(Posicao_Futuro)) > HEDGE_EPS_BASE`, acionar hedge imediato (ordem `MARKET`) para zerar o delta.
+* **Ação:** logar `CRITICAL_HEDGE_DRIFT` e aplicar cooldown de entradas.
+
+### 7.5 WebSocket Watchdog (Modo Seguro)
+Se o feed estiver atrasado, o robô não pode manter ordens "soltas" no book.
+
+* **Regra:** se `last_msg_age_ms > WS_LAST_MSG_TIMEOUT_MS`:
+    * cancelar ordens pendentes,
+    * pausar novas entradas,
+    * reiniciar conexão com backoff.
+
+---
+
+## 8. Plano de Testes (Tiered QA)
+
+O pipeline de testes deve ser cumprido antes do deploy.
+
+### 8.1 Tier 1: Unit Tests (Lógica Pura - CI)
+* `test_impact_price_math`:
+    * Input: Book simulado `[[100, 1], [101, 1]]`, Target `150 USDT`.
+    * Check: Deve calcular o VWAP considerando preenchimento parcial no nível 101.
+* `test_zscore_adaptive`:
+    * Input: Array de spreads com alta variância recente.
+    * Check: Validar se `DynamicZ` altera automaticamente de 2.0 para 3.0.
+* `test_z_exit_threshold`:
+    * Input: `Z=0.19` e `Z_EXIT_EPS=0.2`.
+    * Check: Deve disparar condição de saída por convergência.
+* `test_z_hard_stop`:
+    * Input: `Z=4.1` e `Z_HARD_STOP=4.0`.
+    * Check: Deve disparar stop loss imediato.
+* `test_liquidity_reject`:
+    * Input: Book com volume total baixo.
+    * Check: Garantir que a função retorna `False` e impede o trade.
+
+### 8.2 Tier 2: Integration (S3 e API)
+* `test_parquet_read`:
+    * Ler uma amostra do S3, validar tipos (garantir float64 em preços) e conversão correta de timestamps (ms para ns).
+* `test_symbol_mapping`:
+    * Validar a normalização de strings (ex: converter `BTCUSDT_260626` para o ID interno correto da exchange).
+* `test_exchange_connectivity`:
+    * Conectar WebSocket na Testnet e validar o recebimento de pelo menos uma mensagem de heartbeat/ticker.
+
+### 8.3 Tier 3: System (Backtest e Dry Run)
+* **Backtest:**
+    * Rodar o dia `2025-07-01` completo.
+    * **Critério:** PnL > 0 após descontar taxas simuladas (0.04% Maker / 0.05% Taker).
+* **Paper Trading:**
+    * Rodar 48h na Testnet da Binance Futures.
+    * **Critério:** Zero erros de "Insufficient Margin" e reconexão automática de WebSocket bem sucedida após interrupção forçada.        
