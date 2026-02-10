@@ -20,6 +20,8 @@ def test_broker_taker_market_fill_updates_portfolio():
     pos = broker.portfolio.positions["BTCUSDT"]
     assert abs(pos.qty - 1.5) < 1e-12
     assert abs(pos.avg_price - 100.0) < 1e-12
+    # Self-impact: taker fill consumes from the in-memory book.
+    assert abs(book.asks[100.0] - 0.5) < 1e-12
 
 
 def test_broker_maker_order_fills_on_trade():
@@ -118,6 +120,9 @@ def test_broker_taker_ioc_respects_limit_price():
     # Only 1.0 available at 100.0 within limit.
     assert abs(pos.qty - 1.0) < 1e-12
     assert math.isclose(pos.avg_price, 100.0)
+    # Self-impact: the 100.0 ask level was fully consumed.
+    assert 100.0 not in book.asks
+    assert abs(book.asks[101.0] - 10.0) < 1e-12
 
 
 def test_broker_submit_latency_defers_market_fill():
@@ -200,3 +205,57 @@ def test_broker_maker_trade_participation_is_conservative():
     pos = broker.portfolio.positions["BTCUSDT"]
     assert abs(pos.qty + 0.5) < 1e-12
     assert abs(pos.avg_price - 101.0) < 1e-12
+
+
+def test_broker_gtc_crossing_limit_partial_fill_leaves_remainder_resting():
+    book = L2Book()
+    # Best ask is 100.0. A buy limit at 100.5 crosses, but cannot consume 101.0 (beyond limit),
+    # so it should fill 1.0 @ 100.0 and leave the remainder resting at 100.5.
+    book.apply_depth_update(bid_updates=[(99.0, 1.0)], ask_updates=[(100.0, 1.0), (101.0, 10.0)])
+
+    broker = SimBroker(maker_fee_frac=0.0, taker_fee_frac=0.0)
+    broker.submit(
+        Order(
+            id="gtc1",
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="limit",
+            quantity=5.0,
+            price=100.5,
+            time_in_force="GTC",
+            post_only=False,
+        ),
+        book,
+        now_ms=0,
+    )
+
+    # Immediate taker fill for the crossed portion.
+    pos = broker.portfolio.positions["BTCUSDT"]
+    assert abs(pos.qty - 1.0) < 1e-12
+    assert abs(pos.avg_price - 100.0) < 1e-12
+
+    # Remainder should be resting as a maker order.
+    assert broker.has_open_orders()
+
+    # Self-impact: the 100.0 ask level was fully consumed.
+    assert 100.0 not in book.asks
+
+    # Trade at our resting bid price with sell aggressor (buyer maker=True) fills the remainder.
+    broker.on_trade(
+        Trade(
+            received_time_ns=0,
+            event_time_ms=0,
+            trade_time_ms=0,
+            symbol="BTCUSDT",
+            trade_id=1,
+            price=100.5,
+            quantity=10.0,
+            is_buyer_maker=True,
+        ),
+        now_ms=0,
+    )
+
+    assert not broker.has_open_orders()
+    pos = broker.portfolio.positions["BTCUSDT"]
+    assert abs(pos.qty - 5.0) < 1e-12
+    assert abs(pos.avg_price - 100.4) < 1e-12

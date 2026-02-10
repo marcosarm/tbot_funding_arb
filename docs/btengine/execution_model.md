@@ -43,7 +43,7 @@ Regras principais:
 - `limit` + `GTC` (nao post-only):
   - se o preco cruza o spread no momento da ativacao, executa como taker ate o `limit_price`
   - se nao cruza, vira maker (ordem resting) e pode preencher via modelo de fila
-  - limitacao atual: se cruzar e preencher parcialmente, o restante nao "vira resting order" automaticamente
+  - se cruzar e preencher parcialmente, o restante vira uma ordem resting (maker) no `limit_price` (GTC)
 - `post_only=True`:
   - se cruzaria o spread, a ordem e rejeitada (nao entra)
   - caso contrario, vira maker e pode preencher via modelo de fila
@@ -82,13 +82,13 @@ Notas de latencia:
 
 Limites gerais (importantes):
 
-- self-impact nao e aplicado: ao executar como taker, o book nao tem sua profundidade reduzida pela nossa execucao
+- self-impact e aplicado: ao executar como taker, o book tem sua profundidade reduzida pela nossa execucao (in-memory)
 - nossas ordens maker nao entram no book (nao alteram `best_bid/best_ask` nem competem explicitamente na microestrutura)
-- `limit GTC` que cruza e preenche parcial nao deixa automaticamente o restante como ordem resting (ver acima)
+- `limit GTC` que cruza e preenche parcial mantem automaticamente o restante como ordem resting (ver acima)
 
 ### Taker fill (market/IOC)
 
-Implementacao: `src/btengine/execution/taker.py` (`simulate_taker_fill`)
+Implementacao: `src/btengine/execution/taker.py`
 
 Regra:
 
@@ -99,6 +99,7 @@ Regra:
 Retorno:
 
 - `(avg_price, filled_qty)`; se nao preenche, retorna `(NaN, 0.0)`
+- O broker usa `consume_taker_fill(...)` (mutante, com self-impact). A funcao `simulate_taker_fill(...)` existe como versao pura (nao muta o book).
 
 ### Maker fill (post-only / GTC)
 
@@ -154,9 +155,7 @@ O engine aplica funding uma unica vez por `next_funding_time_ms` por simbolo (pr
 
 Para aproximar mais o comportamento real:
 
-- self-impact: reduzir profundidade do book quando nossas ordens tomam liquidez
 - overlay de nossas ordens no book (para afetar best bid/ask e competir por fila)
-- remainder handling: `limit GTC` que cruza e preenche parcial deveria manter o restante como ordem resting
 - slippage estocastico adicional
 - modelo de spread/impact dinamico (alem do L2 nominal)
 - modelagem de "partial fills" maker ao longo do tempo (nao apenas via trade tape no preco exato)

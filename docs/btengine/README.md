@@ -26,10 +26,11 @@ Nao e (ainda) um simulador "exchange-grade" com latencia/ack/cancel delays, matc
 Ele ja inclui:
 
 - simulacao taker por consumo de L2 (VWAP)
+- self-impact para taker (reduz profundidade do book in-memory)
 - modelo maker aproximado (fila + trade tape)
 - delays deterministicas opcionais de submit/cancel (para evitar otimismo)
 
-Mas ainda nao inclui matching engine completo, self-impact e overlay das nossas ordens no book.
+Mas ainda nao inclui matching engine completo ou overlay das nossas ordens no book.
 
 ## Navegacao da documentacao
 

@@ -41,10 +41,22 @@ class Portfolio:
 
         signed = qty if side == "buy" else -qty
         new_qty = pos.qty + signed
+        # Avoid tiny floating residuals becoming unintended flips / dust positions.
+        if abs(new_qty) <= 1e-12:
+            new_qty = 0.0
 
         # Fee is always a cost.
         self.fees_paid_usdt += float(fee_usdt)
         self.realized_pnl_usdt -= float(fee_usdt)
+
+        # Full close (without flip): realize PnL and reset avg_price.
+        if new_qty == 0.0 and pos.qty != 0.0:
+            closed_qty = abs(pos.qty)
+            pnl = closed_qty * (price - pos.avg_price) * (1.0 if pos.qty > 0 else -1.0)
+            self.realized_pnl_usdt += pnl
+            pos.qty = 0.0
+            pos.avg_price = 0.0
+            return
 
         # If position direction stays the same (or was flat), update avg_price.
         if pos.qty == 0.0 or (pos.qty > 0 and new_qty > 0) or (pos.qty < 0 and new_qty < 0):
@@ -100,4 +112,3 @@ class Portfolio:
         pnl = -(pos.qty * mark_price) * funding_rate
         self.realized_pnl_usdt += pnl
         return pnl
-

@@ -54,6 +54,22 @@ python scripts\\run_backtest_replay.py --day 2025-07-01 --symbols BTCUSDT --mark
 
 O script deriva automaticamente uma janela `[start,end)` a partir de `--hours` e fatia trades/mark_price/orderbook para a mesma janela.
 
+## 4b) Setup simples com entrada + saida (gera PnL)
+
+Exemplo: 1 round-trip (entrada 30s apos inicio, segura 60s e sai):
+
+```bash
+python scripts\\run_backtest_entry_exit.py --day 2025-07-01 --symbol BTCUSDT --hours 12-12 --direction long --qty 0.001 --enter-offset-s 30 --hold-s 60
+```
+
+## 4c) Setup simples com MA(9) em candles 5m
+
+Exemplo: price vs MA9 (compra/vende no cruzamento) usando `mark_price` como fonte de preco:
+
+```bash
+python scripts\\run_backtest_ma_cross.py --day 2025-07-01 --symbol BTCUSDT --hours 12-13 --tf-min 5 --ma-len 9 --price-source mark --rule cross --mode long_short --qty 0.001
+```
+
 ## 5) Rodar um backtest via codigo (exemplo minimo)
 
 ```python

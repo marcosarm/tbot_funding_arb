@@ -69,7 +69,8 @@ Arquivos:
 - `src/btengine/execution/orders.py`
   - `Order`
 - `src/btengine/execution/taker.py`
-  - `simulate_taker_fill(book, side, quantity, limit_price=None) -> (avg_price, filled_qty)`
+  - `simulate_taker_fill(book, side, quantity, limit_price=None) -> (avg_price, filled_qty)` (puro, nao muta o book)
+  - `consume_taker_fill(book, side, quantity, limit_price=None) -> (avg_price, filled_qty)` (mutante, com self-impact)
 - `src/btengine/execution/queue_model.py`
   - `MakerQueueOrder` (modelo aproximado de maker fills)
 - `src/btengine/broker.py`
@@ -88,6 +89,14 @@ Arquivo: `src/btengine/portfolio.py`
   - `realized_pnl_usdt`, `fees_paid_usdt`
   - `apply_fill(...)`
   - `apply_funding(symbol, mark_price, funding_rate) -> funding_pnl_usdt`
+
+## Analytics (PnL / stats)
+
+Pacote: `src/btengine/analytics/`
+
+- `round_trips_from_fills(fills: list[Fill]) -> list[RoundTrip]`
+- `summarize_round_trips(trades: list[RoundTrip]) -> RoundTripSummary`
+- `max_drawdown(equity_curve: list[(time_ms, equity)]) -> float | None`
 
 ## Adapter CryptoHFTData
 

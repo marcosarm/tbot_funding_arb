@@ -81,6 +81,43 @@ Knobs de dados (anti-lookahead):
 
 - `--open-interest-delay-ms`: atrasa a disponibilidade do snapshot de open interest em relacao ao `timestamp` (ex: 5s, 30s).
 
+## `run_backtest_entry_exit.py`
+
+Arquivo: `scripts/run_backtest_entry_exit.py`
+
+Objetivo:
+
+- rodar um setup simples de entrada + saida (market) para gerar operacoes (fills)
+- aferir lucro/prejuizo (PnL realizado) e fees
+- imprimir estatisticas basicas:
+  - round trips reconstruidos a partir de fills (wins/losses, net/gross, duracao)
+  - curva de equity (PnL) amostrada em `mark_price` + max drawdown
+
+Exemplo (BTCUSDT, 2h, 3 ciclos):
+
+```bash
+python scripts\\run_backtest_entry_exit.py --day 2025-07-01 --symbol BTCUSDT --hours 12-13 --direction long --qty 0.001 --enter-offset-s 30 --hold-s 60 --gap-s 60 --cycles 3 --out-fills-csv fills.csv --out-equity-csv equity.csv
+```
+
+## `run_backtest_ma_cross.py`
+
+Arquivo: `scripts/run_backtest_ma_cross.py`
+
+Objetivo:
+
+- criar candles por timeframe (ex: 5m)
+- calcular MA(N) e gerar sinais:
+  - `rule=cross`: compra/vende apenas no cruzamento (price vs MA)
+  - `rule=state`: fica long quando price>=MA e short quando price<MA
+- executar ordens market (taker) para atingir o target (+qty / -qty / flat)
+- imprimir PnL, fees, round trips e equity curve + max drawdown
+
+Exemplo (BTCUSDT, MA9, candles 5m, usar `mark_price` como fonte de preco):
+
+```bash
+python scripts\\run_backtest_ma_cross.py --day 2025-07-01 --symbol BTCUSDT --hours 12-13 --tf-min 5 --ma-len 9 --price-source mark --rule cross --mode long_short --qty 0.001 --out-fills-csv fills.csv --out-equity-csv equity.csv
+```
+
 ## `analyze_replay_temporal.py`
 
 Arquivo: `scripts/analyze_replay_temporal.py`

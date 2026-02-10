@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from .execution.orders import Order
 from .execution.queue_model import MakerQueueOrder
-from .execution.taker import simulate_taker_fill
+from .execution.taker import consume_taker_fill
 from .marketdata.orderbook import L2Book
 from .portfolio import Portfolio
 from .types import DepthUpdate, Trade
@@ -120,7 +120,24 @@ class SimBroker:
         # - if it crosses the spread, it should execute immediately (taker)
         # - otherwise, it rests (maker)
         if crosses():
-            self._fill_taker(order, book, now_ms, limit_price=limit_px)
+            _, filled_qty = self._fill_taker(order, book, now_ms, limit_price=limit_px)
+            remaining = float(order.quantity) - float(filled_qty)
+            if remaining > 0.0:
+                # In real exchanges, the unfilled portion of a limit order remains on the book.
+                self._open_maker(
+                    Order(
+                        id=order.id,
+                        symbol=order.symbol,
+                        side=order.side,
+                        order_type="limit",
+                        quantity=remaining,
+                        price=limit_px,
+                        time_in_force="GTC",
+                        post_only=False,
+                        created_time_ms=int(order.created_time_ms),
+                    ),
+                    book,
+                )
             return
 
         self._open_maker(order, book)
@@ -148,15 +165,15 @@ class SimBroker:
             trade_participation=float(self.maker_trade_participation),
         )
 
-    def _fill_taker(self, order: Order, book: L2Book, now_ms: int, *, limit_price: float | None) -> None:
-        avg_px, filled_qty = simulate_taker_fill(
+    def _fill_taker(self, order: Order, book: L2Book, now_ms: int, *, limit_price: float | None) -> tuple[float, float]:
+        avg_px, filled_qty = consume_taker_fill(
             book,
             side=order.side,
             quantity=float(order.quantity),
             limit_price=limit_price,
         )
         if filled_qty <= 0.0 or math.isnan(avg_px):
-            return
+            return avg_px, 0.0
 
         fee = filled_qty * avg_px * self.taker_fee_frac
         self.portfolio.apply_fill(order.symbol, order.side, filled_qty, avg_px, fee_usdt=fee)
@@ -172,6 +189,7 @@ class SimBroker:
                 liquidity="taker",
             )
         )
+        return avg_px, filled_qty
 
     def on_depth_update(self, update: DepthUpdate, book: L2Book) -> None:
         # Update book first.
