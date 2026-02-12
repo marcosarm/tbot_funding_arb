@@ -15,6 +15,24 @@ Rodar testes:
 pytest -q
 ```
 
+## 1b) Consumir o btengine em outro repositorio
+
+No `pyproject.toml` do projeto consumidor, voce pode instalar por Git pinado:
+
+```bash
+pip install "git+https://github.com/marcosarm/tbot_funding_arb.git@<commit-ou-tag>#subdirectory=."
+```
+
+Durante desenvolvimento local (duas pastas lado a lado), use editable install:
+
+```bash
+pip install -e C:\\caminho\\tbot_funding_arb
+```
+
+Guia completo de reuso:
+
+- `docs/btengine/reuse_in_other_projects.md`
+
 ## 2) Configurar acesso ao S3 (CryptoHFTData)
 
 Use `.env.example` como template e crie um `.env` local.
@@ -69,6 +87,22 @@ Exemplo: price vs MA9 (compra/vende no cruzamento) usando `mark_price` como font
 ```bash
 python scripts\\run_backtest_ma_cross.py --day 2025-07-01 --symbol BTCUSDT --hours 12-13 --tf-min 5 --ma-len 9 --price-source mark --rule cross --mode long_short --qty 0.001
 ```
+
+## 4d) Batch multi-dia com validacao temporal e guard de book
+
+Para validar mais de um dia e reduzir impacto de horarios com book degradado:
+
+```bash
+python scripts\\run_backtest_batch.py --start-day 2025-07-20 --days 5 --symbol BTCUSDT --hours 0-23 --setup ma_cross --tf-min 5 --ma-len 9 --price-source mark --rule cross --mode long_short --qty 0.001 --include-ticker --include-open-interest --include-liquidations --strict-book --out-csv batch_5d.csv
+```
+
+Opcoes uteis do strict guard:
+
+- `--strict-book-max-spread` (absoluto)
+- `--strict-book-max-spread-bps` (relativo ao mid)
+- `--strict-book-max-staleness-ms`
+- `--strict-book-cooldown-ms`
+- `--strict-book-warmup-depth-updates`
 
 ## 5) Rodar um backtest via codigo (exemplo minimo)
 

@@ -13,6 +13,26 @@
 
 Objetivo: ser generico o suficiente para ser reutilizado como biblioteca em outros projetos/estrategias, sem acoplar a Binance/CCXT no core do motor.
 
+## Reuso em outros projetos
+
+O `btengine` foi organizado para ser importado como biblioteca, com baixo acoplamento:
+
+- Core agnostico de exchange/dataset:
+  - `btengine.engine`
+  - `btengine.types`
+  - `btengine.broker`
+  - `btengine.marketdata`
+  - `btengine.execution`
+  - `btengine.analytics`
+- Adapter de dataset separado em `btengine.data.*`:
+  - hoje: `btengine.data.cryptohftdata`
+  - novos datasets/exchanges podem entrar como novos adapters, sem mudar o core
+- Scripts em `scripts/` sao exemplos/entrypoints, nao dependencia do core
+
+Guia dedicado para integrar em outro repositorio:
+
+- `docs/btengine/reuse_in_other_projects.md`
+
 ## Estado atual
 
 O foco atual e:
@@ -35,6 +55,7 @@ Mas ainda nao inclui matching engine completo ou overlay das nossas ordens no bo
 ## Navegacao da documentacao
 
 - Quickstart: `docs/btengine/quickstart.md`
+- Reuso em outros projetos: `docs/btengine/reuse_in_other_projects.md`
 - Conceitos (eventos, tempo, streams): `docs/btengine/core_concepts.md`
 - Adapter CryptoHFTData (S3/Parquet): `docs/btengine/crypto_hftdata.md`
 - Modelo de execucao/fills e portfolio: `docs/btengine/execution_model.md`

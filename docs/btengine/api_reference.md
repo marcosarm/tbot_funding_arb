@@ -2,6 +2,19 @@
 
 Este arquivo lista os objetos mais importantes e onde importa-los. O codigo tem type hints e docstrings; este e um mapa rapido.
 
+## Superficie recomendada para consumo externo
+
+Para reuso em outro projeto, prefira importar desta superficie (mais estavel):
+
+- `btengine` (top-level): engine + tipos principais
+- `btengine.engine`: `EngineContext` e `BacktestResult`
+- `btengine.broker`: `SimBroker` e `Fill`
+- `btengine.execution.orders`: `Order`
+- `btengine.analytics`: round trips e drawdown
+- `btengine.data.cryptohftdata`: apenas se for usar esse adapter especifico
+
+Evite depender de atributos internos (`_privados`) ou estrutura interna de scripts.
+
 ## `btengine` (top-level)
 
 Arquivo: `src/btengine/__init__.py`

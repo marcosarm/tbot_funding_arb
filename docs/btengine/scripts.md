@@ -118,6 +118,41 @@ Exemplo (BTCUSDT, MA9, candles 5m, usar `mark_price` como fonte de preco):
 python scripts\\run_backtest_ma_cross.py --day 2025-07-01 --symbol BTCUSDT --hours 12-13 --tf-min 5 --ma-len 9 --price-source mark --rule cross --mode long_short --qty 0.001 --out-fills-csv fills.csv --out-equity-csv equity.csv
 ```
 
+## `run_backtest_batch.py`
+
+Arquivo: `scripts/run_backtest_batch.py`
+
+Objetivo:
+
+- rodar setup por varios dias (entry_exit ou ma_cross)
+- validar temporalidade/continuidade por dia
+- consolidar metricas e PnL em CSV
+- opcionalmente ativar guard de book (`--strict-book`) para reduzir impacto de dados ruins
+
+Exemplo (5 dias, MA9 5m, full day):
+
+```bash
+python scripts\\run_backtest_batch.py --start-day 2025-07-20 --days 5 --symbol BTCUSDT --hours 0-23 --setup ma_cross --tf-min 5 --ma-len 9 --price-source mark --rule cross --mode long_short --qty 0.001 --include-ticker --include-open-interest --include-liquidations --strict-book --out-csv batch_5d.csv
+```
+
+Knobs principais de guard:
+
+- `--strict-book-max-spread`: spread absoluto maximo permitido
+- `--strict-book-max-spread-bps`: spread maximo relativo ao mid (bps)
+- `--strict-book-max-staleness-ms`: idade maxima do ultimo depth update
+- `--strict-book-cooldown-ms`: bloqueio temporario apos trip
+- `--strict-book-warmup-depth-updates`: bloqueio por N updates apos trip
+- `--strict-book-reset-on-mismatch` / `--strict-book-no-reset-on-mismatch`
+- `--strict-book-reset-on-crossed` / `--strict-book-no-reset-on-crossed`
+
+Colunas relevantes no CSV:
+
+- qualidade temporal: `out_of_order`, `duplicates`, `outside_window`
+- continuidade: `final_id_nonmonotonic`, `prev_id_mismatch`
+- sanidade do book: `book_crossed`, `book_missing_side`, `spread_*`
+- guard: `strict_guard_*`, `strict_blocked_submits`, `strict_blocked_submit_reason`
+- resultado: `round_trips`, `net_pnl_usdt`, `fees_usdt`, `max_drawdown_usdt`
+
 ## `analyze_replay_temporal.py`
 
 Arquivo: `scripts/analyze_replay_temporal.py`
