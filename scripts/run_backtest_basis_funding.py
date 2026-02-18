@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import csv
@@ -11,8 +11,6 @@ from typing import Any, Iterable, Iterator
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "src"))
-
 from btengine.analytics import max_drawdown, round_trips_from_fills, summarize_round_trips
 from btengine.broker import SimBroker
 from btengine.data.cryptohftdata import CryptoHftDayConfig, CryptoHftLayout, S3Config, build_day_stream, make_s3_filesystem
@@ -374,3 +372,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

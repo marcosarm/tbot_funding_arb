@@ -1,47 +1,41 @@
-# Contexto de Integração Btengine
+# Btengine Integration Context
 
-## Objetivo da separação
+## Purpose
+- `btengine` is the standalone backtest engine (private repo).
+- `tbot_funding_arb` is the strategy/application repo.
+- Strategy code must not live inside `btengine`.
 
-- O repositório `btengine` fica responsável apenas por biblioteca de backtest genérica (engine + execução + adapters).
-- O repositório `tbot_funding_arb` fica responsável por estratégia de funding/basis e pipelines do projeto.
-- A estratégia de negócio (`funding/`) não deve depender de código de domínio do `btengine`, apenas da sua API pública.
+## Repos
+- Engine: `C:\\4mti\\Projetos\\btengine` (`git@github.com:marcosarm/btengine.git`, private)
+- Strategy/app: `C:\\4mti\\Projetos\\tbot_funding_arb`
 
-## Repositórios
-
-- Engine: `C:\4mti\Projetos\btengine` (`https://github.com/marcosarm/btengine`)
-- Estratégia/app: `C:\4mti\Projetos\tbot_funding_arb`
-
-## Contrato de uso (resumo)
-
-- Instalar `btengine` antes de executar scripts do projeto de estratégia.
-- Importações principais:
+## Usage contract
+- Install `btengine` before running strategy scripts.
+- Core imports:
   - `btengine.engine.BacktestEngine`, `btengine.engine.EngineConfig`, `btengine.engine.EngineContext`
   - `btengine.broker.SimBroker`
   - `btengine.types.DepthUpdate`, `btengine.types.MarkPrice`, `btengine.types.Trade`
-- A estratégia (`funding/basis_funding.py`) deve tratar:
-  - sinalização
-  - risco operacional
-  - gestão de exposição e stops
-- Execução realista é responsabilidade do engine (taker, maker, funding, fees, filas, janela temporal).
+- Strategy (`funding/`) handles:
+  - signals
+  - risk rules
+  - position management
+- Execution realism is handled by the engine (taker/maker/funding/fees/book model).
 
-## Bootstrap local (Windows)
+## Local bootstrap (Windows)
 
 ```bash
-cd C:\4mti\Projetos\btengine
+cd C:\\4mti\\Projetos\\btengine
 pip install -e .
 
-cd C:\4mti\Projetos\tbot_funding_arb
+cd C:\\4mti\\Projetos\\tbot_funding_arb
 pip install -e .
 ```
 
-## Regras para não acoplar
+## Do not couple
+- Do not add strategy code inside `src\\btengine`.
+- Do not add dependencies from `tbot_funding_arb` into `btengine`.
 
-- Evitar qualquer alteração de estratégia dentro de `src/btengine`.
-- Evitar dependências do projeto `tbot_funding_arb` dentro de módulos do `btengine`.
-- Manter qualquer lógica de seleção de setup, parâmetros táticos e regras de saída em `funding/*` e `scripts/*`.
-
-## Fontes de verdade
-
-- Especificação funcional: `SPECIFICATION.md`
-- Documentação de integração: `docs/btengine/reuse_in_other_projects.md`
-- Documentação de execução: `docs/btengine/quickstart.md`
+## References
+- Strategy spec: `SPECIFICATION.md`
+- Engine integration guide: `C:\\4mti\\Projetos\\btengine\\docs\\btengine\\reuse_in_other_projects.md`
+- Engine quickstart: `C:\\4mti\\Projetos\\btengine\\docs\\btengine\\quickstart.md`

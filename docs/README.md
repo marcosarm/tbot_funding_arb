@@ -1,4 +1,4 @@
 # Documentacao
 
-- `btengine` (motor externo): https://github.com/marcosarm/btengine
-- `docs/btengine/README.md` (referência de integração no repositório de estratégia)
+- `btengine` (motor externo, private): `git@github.com:marcosarm/btengine.git`
+- Documentacao do engine local: `C:\4mti\Projetos\btengine\docs\btengine\README.md`

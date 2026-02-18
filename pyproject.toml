@@ -3,23 +3,21 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "btengine"
+name = "tbot-funding-arb"
 version = "0.1.0"
-description = "Generic event-driven backtest engine (CryptoHFTData adapter included)."
-readme = "readme.md"
+description = "Basis & funding arbitrage strategy project (uses btengine as an external dependency)."
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "numpy>=1.23",
-  "pandas>=1.5",
-  "pyarrow>=10.0",
+  "btengine>=0.1.0",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
-where = ["src"]
-
+where = ["."]
+include = ["funding*"]
