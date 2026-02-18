@@ -9,13 +9,13 @@ Escolha uma estrategia de distribuicao.
 Opcao A: dependencia local (desenvolvimento paralelo):
 
 ```bash
-pip install -e C:\\caminho\\tbot_funding_arb
+pip install -e C:\\caminho\\btengine
 ```
 
 Opcao B: dependencia via Git (recomendado para CI):
 
 ```bash
-pip install "git+https://github.com/marcosarm/tbot_funding_arb.git@<commit-ou-tag>#subdirectory=."
+pip install "git+https://github.com/marcosarm/btengine.git@<commit-ou-tag>"
 ```
 
 Opcao C: wheel interno (recomendado para ambiente controlado):

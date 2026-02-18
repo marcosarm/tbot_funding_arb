@@ -14,9 +14,11 @@ O robô busca capturar lucro de duas fontes simultâneas:
 Neste diretório, o foco atual é a **documentação** + um **motor de backtest genérico** (reutilizável) para replay de dados parquet.
 
 - Documento fonte (arquitetura/estratégia/risco/testes): `SPECIFICATION.md`
-- Motor de backtest (biblioteca): `src/btengine`
-- Documentação do motor (btengine): `docs/btengine/README.md`
+- Motor de backtest (biblioteca): repositório `C:\4mti\Projetos\btengine` ou `https://github.com/marcosarm/btengine.git`
+- Documentação do motor (`btengine`): `docs/btengine/README.md` (referência de uso), código completo no projeto `btengine`
 - Arquivos de configuração local: `.env` (ignorado) e `.env.example` (template; não versionar segredos)
+- Contexto de integração entre projetos: `BTENGINE_CONTEXT.md`
+- Contexto de integração entre projetos: `BTENGINE_CONTEXT.md`
 
 ## 🏗️ Arquitetura
 - **Linguagem:** Python 3.10+
@@ -33,10 +35,20 @@ O sistema consome dados históricos proprietários armazenados no S3 com partici
 
 ## ⚙️ Instalação
 
-1. **Clone o repositório:**
+1. **Clone os repositórios:**
    ```bash
+   git clone https://github.com/marcosarm/btengine.git
    git clone https://github.com/marcosarm/tbot_funding_arb.git
-   cd tbot_funding_arb
+   cd btengine
+   ```
+2. **Instale o btengine:**
+   ```bash
+   pip install -e .
+   ```
+3. **Volte para o projeto de estratégia:**
+   ```bash
+   cd ..\\tbot_funding_arb
+   pip install -e .
    ```
 
 ## 🔐 Configuração (variáveis de ambiente)

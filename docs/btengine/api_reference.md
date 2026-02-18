@@ -111,6 +111,17 @@ Pacote: `src/btengine/analytics/`
 - `summarize_round_trips(trades: list[RoundTrip]) -> RoundTripSummary`
 - `max_drawdown(equity_curve: list[(time_ms, equity)]) -> float | None`
 
+## Estrategia de exemplo (no repo)
+
+Este repositorio inclui uma estrategia de exemplo que usa o `btengine`, mas nao faz parte do pacote `btengine` (para manter a biblioteca generica):
+
+- `funding/basis_funding.py`
+  - `BasisFundingStrategy` (perp x future)
+  - basis por mid-price (`basis_signal_mid`)
+  - custo de execucao por impact price (`execution_cost_std_rev`)
+  - limiar dinamico (`dynamic_z_threshold`)
+  - filtros de liquidez/funding + maquina de estados (`flat`, `standard`, `reverse`)
+
 ## Adapter CryptoHFTData
 
 Pacote: `src/btengine/data/cryptohftdata/`

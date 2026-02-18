@@ -20,10 +20,16 @@ pytest -q
 No `pyproject.toml` do projeto consumidor, voce pode instalar por Git pinado:
 
 ```bash
-pip install "git+https://github.com/marcosarm/tbot_funding_arb.git@<commit-ou-tag>#subdirectory=."
+pip install "git+https://github.com/marcosarm/btengine.git@<commit-ou-tag>"
 ```
 
 Durante desenvolvimento local (duas pastas lado a lado), use editable install:
+
+```bash
+pip install -e C:\\caminho\\btengine
+```
+
+No projeto `tbot_funding_arb`, instale o pacote de estratégia separadamente:
 
 ```bash
 pip install -e C:\\caminho\\tbot_funding_arb
@@ -103,6 +109,14 @@ Opcoes uteis do strict guard:
 - `--strict-book-max-staleness-ms`
 - `--strict-book-cooldown-ms`
 - `--strict-book-warmup-depth-updates`
+
+## 4e) Basis + Funding (Perp x Trimestral)
+
+Exemplo de batch dedicado para estrategia de referencia de funding+basis:
+
+```bash
+python scripts\\run_backtest_basis_funding.py --start-day 2026-02-01 --days 1 --hours 12-12 --perp-symbol BTCUSDT --future-symbol BTCUSDT_260626 --include-ticker --include-open-interest --include-liquidations --out-csv batch_basis_funding.csv
+```
 
 ## 5) Rodar um backtest via codigo (exemplo minimo)
 

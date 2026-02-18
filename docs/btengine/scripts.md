@@ -153,6 +153,36 @@ Colunas relevantes no CSV:
 - guard: `strict_guard_*`, `strict_blocked_submits`, `strict_blocked_submit_reason`
 - resultado: `round_trips`, `net_pnl_usdt`, `fees_usdt`, `max_drawdown_usdt`
 
+## `run_backtest_basis_funding.py`
+
+Arquivo: `scripts/run_backtest_basis_funding.py`
+
+Objetivo:
+
+- rodar backtest da estrategia de referencia de funding+basis (perp x future)
+- processar batch multi-dia com duas pernas simultaneas
+- consolidar sinais/execucao/risco basico em CSV por dia
+
+Exemplo (1 dia, janela 12:00-13:00 UTC):
+
+```bash
+python scripts\\run_backtest_basis_funding.py --start-day 2026-02-01 --days 1 --hours 12-12 --perp-symbol BTCUSDT --future-symbol BTCUSDT_260626 --include-ticker --include-open-interest --include-liquidations --out-csv batch_basis_funding.csv
+```
+
+Principais parametros:
+
+- par de symbols: `--perp-symbol`, `--future-symbol`
+- regime/sinal: `--z-window`, `--vol-ratio-window`, `--z-exit-eps`, `--z-hard-stop`
+- funding/financeiro: `--funding-threshold`, `--entry-safety-margin`, `--max-slippage`
+- liquidez: `--impact-notional-usdt`, `--liquidity-min-ratio`, `--liquidity-depth-pct`
+- operacao: `--entry-cooldown-sec`, `--hedge-eps-base`, `--no-reverse`
+
+Colunas principais no CSV:
+
+- entradas/saidas: `entries_standard`, `entries_reverse`, `exits_*`
+- risco/execucao: `liquidity_rejects`, `hedge_actions`, `state_end`
+- resultado: `net_pnl_usdt`, `fees_usdt`, `realized_pnl_usdt`, `max_drawdown_usdt`
+
 ## `analyze_replay_temporal.py`
 
 Arquivo: `scripts/analyze_replay_temporal.py`
