@@ -116,6 +116,10 @@ def main() -> int:
     ap.add_argument("--z-exit-eps", type=float, default=0.2)
     ap.add_argument("--z-hard-stop", type=float, default=4.0)
     ap.add_argument("--entry-cooldown-sec", type=int, default=30)
+    ap.add_argument("--maker-wait-sec", type=float, default=5.0)
+    ap.add_argument("--legging-check-delay-ms", type=int, default=200)
+    ap.add_argument("--asof-tolerance-ms", type=int, default=100)
+    ap.add_argument("--basis-sample-ms", type=int, default=1000)
     ap.add_argument("--hedge-eps-base", type=float, default=0.001)
     ap.add_argument("--no-reverse", dest="allow_reverse", action="store_false")
     ap.add_argument("--no-force-close-on-end", dest="force_close_on_end", action="store_false")
@@ -244,6 +248,10 @@ def main() -> int:
                 z_exit_eps=float(args.z_exit_eps),
                 z_hard_stop=float(args.z_hard_stop),
                 entry_cooldown_sec=int(args.entry_cooldown_sec),
+                maker_wait_sec=float(args.maker_wait_sec),
+                legging_check_delay_ms=int(args.legging_check_delay_ms),
+                asof_tolerance_ms=int(args.asof_tolerance_ms),
+                basis_sample_ms=int(args.basis_sample_ms),
                 hedge_eps_base=float(args.hedge_eps_base),
                 allow_reverse=bool(args.allow_reverse),
                 force_close_on_end=bool(args.force_close_on_end),

@@ -17,7 +17,23 @@ from funding import (
 from btengine.types import DepthUpdate, MarkPrice
 
 
-def _depth(symbol: str, t_ms: int, update_id: int, bid: float, ask: float, qty: float = 100.0) -> DepthUpdate:
+def _depth(
+    symbol: str,
+    t_ms: int,
+    update_id: int,
+    bid: float,
+    ask: float,
+    qty: float = 100.0,
+    extra_bid_updates: list[tuple[float, float]] | None = None,
+    extra_ask_updates: list[tuple[float, float]] | None = None,
+) -> DepthUpdate:
+    bid_updates = [(float(bid), float(qty))]
+    ask_updates = [(float(ask), float(qty))]
+    if extra_bid_updates:
+        bid_updates.extend(extra_bid_updates)
+    if extra_ask_updates:
+        ask_updates.extend(extra_ask_updates)
+
     return DepthUpdate(
         received_time_ns=0,
         event_time_ms=int(t_ms),
@@ -26,8 +42,8 @@ def _depth(symbol: str, t_ms: int, update_id: int, bid: float, ask: float, qty: 
         first_update_id=int(update_id),
         final_update_id=int(update_id),
         prev_final_update_id=int(update_id) - 1,
-        bid_updates=[(float(bid), float(qty))],
-        ask_updates=[(float(ask), float(qty))],
+        bid_updates=bid_updates,
+        ask_updates=ask_updates,
     )
 
 
@@ -109,25 +125,44 @@ def test_basis_funding_standard_entry_and_mean_reversion_exit():
         z_exit_eps=1.00,
         z_hard_stop=10.0,
         entry_cooldown_sec=0,
+        maker_wait_sec=0.0,
+        legging_check_delay_ms=0,
+        asof_tolerance_ms=1_000_000,
         hedge_eps_base=10.0,
         allow_reverse=True,
         force_close_on_end=False,
     )
 
     events = [
-        _mark("BTCUSDT", 500, 100.0, 0.001),
-        _depth("BTCUSDT", 1000, 1, 100.0, 100.1),
-        _depth("BTCUSDT_260626", 1000, 1, 101.0, 101.1),
-        _depth("BTCUSDT", 2000, 2, 100.0, 100.1),
-        _depth("BTCUSDT_260626", 2000, 2, 101.0, 101.1),
-        _depth("BTCUSDT", 3000, 3, 100.0, 100.1),
-        _depth("BTCUSDT_260626", 3000, 3, 101.0, 101.1),
+        _mark("BTCUSDT", 0, 100.0, 0.001),
+        _depth("BTCUSDT", 0, 1, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 0, 1, 101.0, 101.1),
+        _depth("BTCUSDT", 60_000, 2, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 60_000, 2, 101.0, 101.1),
+        _depth("BTCUSDT", 120_000, 3, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 120_000, 3, 101.0, 101.1),
+        _depth("BTCUSDT", 180_000, 4, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 180_000, 4, 101.0, 101.1),
+        _depth("BTCUSDT", 240_000, 5, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 240_000, 5, 101.0, 101.1),
+        _depth("BTCUSDT", 300_000, 6, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 300_000, 6, 101.0, 101.1),
+        _depth("BTCUSDT", 360_000, 7, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 360_000, 7, 101.0, 101.1),
         # Outlier basis -> should trigger standard entry (short perp / long future).
-        _depth("BTCUSDT", 4000, 4, 100.0, 100.1),
-        _depth("BTCUSDT_260626", 4000, 4, 97.0, 97.1),
+        _depth("BTCUSDT", 420_000, 8, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 420_000, 8, 97.0, 97.1),
         # Mean reversion -> should exit.
-        _depth("BTCUSDT", 5000, 5, 100.0, 100.1),
-        _depth("BTCUSDT_260626", 5000, 5, 101.0, 101.1),
+        _depth("BTCUSDT", 480_000, 9, 100.0, 100.1),
+        _depth(
+            "BTCUSDT_260626",
+            480_000,
+            9,
+            101.0,
+            101.1,
+            extra_bid_updates=[(97.0, 0.0)],
+            extra_ask_updates=[(97.1, 0.0)],
+        ),
     ]
 
     res = engine.run(events, strategy=strat)
@@ -162,23 +197,34 @@ def test_basis_funding_exits_on_funding_flip():
         z_exit_eps=0.01,
         z_hard_stop=10.0,
         entry_cooldown_sec=0,
+        maker_wait_sec=0.0,
+        legging_check_delay_ms=0,
+        asof_tolerance_ms=1_000_000,
         hedge_eps_base=10.0,
         allow_reverse=True,
         force_close_on_end=False,
     )
 
     events = [
-        _mark("BTCUSDT", 500, 100.0, 0.001),
-        _depth("BTCUSDT", 1000, 1, 100.0, 100.1),
-        _depth("BTCUSDT_260626", 1000, 1, 101.0, 101.1),
-        _depth("BTCUSDT", 2000, 2, 100.0, 100.1),
-        _depth("BTCUSDT_260626", 2000, 2, 101.0, 101.1),
-        _depth("BTCUSDT", 3000, 3, 100.0, 100.1),
-        _depth("BTCUSDT_260626", 3000, 3, 101.0, 101.1),
-        _depth("BTCUSDT", 4000, 4, 100.0, 100.1),
-        _depth("BTCUSDT_260626", 4000, 4, 97.0, 97.1),
+        _mark("BTCUSDT", 0, 100.0, 0.001),
+        _depth("BTCUSDT", 0, 1, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 0, 1, 101.0, 101.1),
+        _depth("BTCUSDT", 60_000, 2, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 60_000, 2, 101.0, 101.1),
+        _depth("BTCUSDT", 120_000, 3, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 120_000, 3, 101.0, 101.1),
+        _depth("BTCUSDT", 180_000, 4, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 180_000, 4, 101.0, 101.1),
+        _depth("BTCUSDT", 240_000, 5, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 240_000, 5, 101.0, 101.1),
+        _depth("BTCUSDT", 300_000, 6, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 300_000, 6, 101.0, 101.1),
+        _depth("BTCUSDT", 360_000, 7, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 360_000, 7, 101.0, 101.1),
+        _depth("BTCUSDT", 420_000, 8, 100.0, 100.1),
+        _depth("BTCUSDT_260626", 420_000, 8, 97.0, 97.1),
         # Funding flips against standard mode.
-        _mark("BTCUSDT", 4500, 100.0, -0.001),
+        _mark("BTCUSDT", 450_000, 100.0, -0.001),
     ]
 
     res = engine.run(events, strategy=strat)
