@@ -38,11 +38,12 @@ O sistema é um robô de trading quantitativo de alta frequência (HFT/Mid-frequ
 | `ENTRY_SAFETY_MARGIN` | `0.0002` | fração (2 bps = 0.02%) | Buffer adicional para cobrir erro de modelo/spread/latência ao validar gatilho financeiro. |
 | `LIQUIDITY_MIN_RATIO` | `5.0` | x | Multiplicador sobre o tamanho da ordem para aprovar liquidez. |
 | `LIQUIDITY_DEPTH_PCT` | `0.001` | fração (0.1%) | Profundidade relativa (em torno do Mid) para cálculo do Score de Liquidez. |
-| `Z_WINDOW` | `1440` | min | Janela de lookback para Média/Desvio e Z-Score (24h), em amostras por minuto. |
+| `Z_WINDOW` | `1440` | min | Janela de lookback para Média/Desvio e Z-Score (24h), com janela temporal em minutos. |
 | `Z_EXIT_EPS` | `0.2` | - | Tolerância para considerar convergência (`abs(Z) <= Z_EXIT_EPS`). |
 | `Z_HARD_STOP` | `4.0` | - | Hard stop por evento extremo (`abs(Z) >= Z_HARD_STOP`). |
 | `VOL_RATIO_WINDOW` | `60` | min | Janela curta (min) para cálculo de volatilidade relativa. |
-| `ASOF_TOLERANCE_MS` | `100` | ms | Tolerância do ASOF JOIN entre Orderbook e Mark Price. |
+| `ASOF_TOLERANCE_MS` | `100` | ms | Tolerância do ASOF JOIN entre Orderbook e Mark Price (funding proj. só é válido se o mark estiver dentro dessa janela). |
+| `BASIS_SAMPLE_MS` | `1000` | ms | Intervalo mínimo entre amostras de basis para alimentar `Z_WINDOW`/`VOL_RATIO_WINDOW`. |
 | `MAKER_WAIT_SEC` | `5` | s | Tempo máximo tentando Maker antes do fallback para Taker. |
 | `ENTRY_COOLDOWN_SEC` | `30` | s | Cooldown após rejeição por liquidez/erro operacional para evitar overtrading. |
 | `LEGGING_CHECK_DELAY_MS` | `200` | ms | Delay após envio das pernas antes da reconciliação de posições (legging). |
@@ -87,6 +88,7 @@ O sistema é um robô de trading quantitativo de alta frequência (HFT/Mid-frequ
 2.  **Mark Price (`mark_price.parquet`):**
     * Colunas: `index_price`, `funding_rate`, `next_funding_time`.
     * *Sync:* Realizar "ASOF JOIN" (merge by nearest timestamp) com o Orderbook, tolerância de `ASOF_TOLERANCE_MS`.
+    * *Regra de Staleness:* se o `mark_price` estiver fora da tolerância, `Funding_Proj` deve ser tratado como inválido (não abrir/fechar por funding flip).
 
 ### 4.2 Dados em Tempo Real (Live)
 * **Conexão:** `ccxt.pro` (Async WebSocket).
@@ -167,6 +169,7 @@ Ajusta a agressividade da entrada baseada na volatilidade relativa do mercado.
     $$\sigma_t = StdDev(Basis_{Signal}, Z\_WINDOW)$$
     $$Z_t = \frac{Basis_{Signal,t} - \mu_t}{\sigma_t}$$
     *Regra:* Se $\sigma_t$ for muito pequeno (ex: sem variação), bloquear entrada ou tratar $Z_t = 0$ para evitar divisão instável.
+    *Amostragem:* o `Basis_Signal` deve ser amostrado no tempo (ex: a cada `BASIS_SAMPLE_MS`) e a janela é temporal (últimos `Z_WINDOW` minutos), não por número de eventos.
 
 2.  **Cálculo do VolRatio (regime):**
     Comparar a volatilidade recente com a volatilidade média do dia.
@@ -249,6 +252,9 @@ async def execute_leg(symbol, side, qty, price_maker, price_taker):
     remaining = qty - filled
 
     # 2. Completa como TAKER (IOC - Immediate or Cancel) se necessário
+    # price_taker deve ser um LIMIT conservador usando MAX_SLIPPAGE:
+    # - buy: best_ask * (1 + MAX_SLIPPAGE)
+    # - sell: best_bid * (1 - MAX_SLIPPAGE)
     if remaining > 0:
         await exchange.create_order(
             symbol, 'LIMIT', side, remaining, price_taker,
